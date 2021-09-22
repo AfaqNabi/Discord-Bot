@@ -1,0 +1,13 @@
+{
+  "bot_prefix": "BOT_PREFIX", 
+  "token": "BOT_TOKEN",
+  "application_id": "APPLICATION_ID",
+  "auth": "HEADER_AUTH",
+  "source_channel_id" : "MESSAGE_SOURCE_CHANNEL_ID",
+  "destination_channel_id": "MESSAGE_DESTINATION_CHANNEL_ID",
+  "role_tag": "PING_TAG",
+  "DB_name": "DB_NAME.DB",
+  "owners": [
+    "OWNER_ID"
+  ]
+}
