@@ -91,7 +91,7 @@ class MyClient(discord.Client):
         print(self.user.id)
         print('------')
 
-    @tasks.loop(seconds=60)  # task runs every 60 seconds
+    @tasks.loop(config["refesh_interval"])  # task runs every 60 seconds
     async def my_background_task(self):
         channel = self.get_channel(int(config["destination_channel_id"]))  # channel ID goes here
         if self.counter > 0:
