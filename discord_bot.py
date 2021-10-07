@@ -46,6 +46,7 @@ class SourceChannel:
 
         r = requests.get('https://discord.com/api/v9/channels/{}/messages'.format(self.channelID), headers=headers)
         self.content = json.loads(r.text)
+        return self.content
 
     def insert_messages(self):
         for message in self.content:
@@ -53,10 +54,10 @@ class SourceChannel:
                 try:
                     query, values = self.db.build_query(message, self.channelName)
                     self.db.execute(query, values)
+                    self.db.commit()
 
                 except Exception as e:
                     pass
-                    # print("tried to add already existing message to DB, message: "+cnt)
                 else:
                     self.db.commit()
 
@@ -64,13 +65,12 @@ class SourceChannel:
         self.getNewMessages()
         self.insert_messages()
 
-        query = "SELECT msg_id, msg_content, image_url, reference FROM " + "`" + self.channelName + "`" + "where sent " \
-                                                                                                          "= 0 " \
-                                                                                                          "ORDER BY " \
-                                                                                                          "tstamp " \
-                                                                                                          "DESC; "
+        query = "SELECT msg_id, msg_content, image_url, reference " \
+                "FROM " + "`" + self.channelName + "`" + \
+                "where sent = 0 " \
+                "ORDER BY tstamp DESC; "
         self.db.execute(query)
-        clean_messages = self.db.cursor.fetchall()
+        clean_messages = self.db.fetch()
         self.db.commit()
         return clean_messages
 
@@ -106,25 +106,33 @@ class MyClient(discord.Client):
             # get messages from DB
             messages = source_channel.getMessagesFromDB()
             counter = len(messages) - 1
-
+            
             # get the destination channel to send message to
             dest_channel = self.get_channel(int(dest_channels[channel]))  # channel ID goes here
 
-            if counter > 0:
+            if counter >= 0:
                 # update database
                 query = "UPDATE " + "`" + channel + "`" + '''
                 SET sent = 1
                 where msg_id = ?
-                ''', (messages[counter][0],)
-                self.db.execute(query)
+                '''
+                try:
+                    self.db.execute(query, (messages[counter][0],))
+                except Exception as e:
+                    print(e)
                 self.db.commit()
 
                 # print logs
-                print(channel + ": ")
-                print('\n' + config["role_tag"] + messages[counter][1])
+                print(channel + ": New message Sent\n")
+                print('\n' + config["role_tag"] + messages[counter][1] + '\n' + messages[counter][2])
 
+                msg_to_send = messages[counter][1]
+                attachment = messages[counter][2]
+                embed = discord.Embed()
+                embed.set_image(url=attachment)
                 # send the message to discord channel
-                await dest_channel.send('\n' + config["role_tag"] + '\n' + messages[counter][1])
+                if bool(msg_to_send and not msg_to_send.isspace()):
+                    await dest_channel.send(msg_to_send, embed=embed)
             else:
                 messages = source_channel.getMessagesFromDB()
                 counter = len(messages)
@@ -184,13 +192,17 @@ class Database:
         if message["attachments"]:
             first_line += ", image_url"
             second_line += ", :url"
-            values["url"] = json.dumps(message["attachments"])
+            if "image" in message["attachments"][0]["content_type"]:
+                values["url"] = message["attachments"][0]["url"]
 
         first_line += ") "
         second_line += ")"
         query = first_line + second_line
 
         return query, values
+
+    def fetch(self):
+        return self.cursor.fetchall()
 
     def execute(self, query, *args):
         self.cursor.execute(query, *args)
