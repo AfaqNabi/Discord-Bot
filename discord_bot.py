@@ -45,8 +45,11 @@ class SourceChannel:
         }
 
         r = requests.get('https://discord.com/api/v9/channels/{}/messages'.format(self.channelID), headers=headers)
-        self.content = json.loads(r.text)
-        return self.content
+        try:
+            self.content = json.loads(r.text)
+            return self.content
+        except Exception as e:
+            print(r.text)
 
     def insert_messages(self):
         for message in self.content:
@@ -102,40 +105,52 @@ class MyClient(discord.Client):
         # an attribute we can access from our task
         for channel in source_channels:
             # initialize subclass
-            source_channel = SourceChannel(channelName=channel, channelID=source_channels[channel])
-            # get messages from DB
-            messages = source_channel.getMessagesFromDB()
-            counter = len(messages) - 1
-            
+            src_exists = True
+            counter = 0
+            messages = None
+            dest_channel = None
+            try:
+                source_channel = SourceChannel(channelName=channel, channelID=source_channels[channel])
+                # get messages from DB
+                messages = source_channel.getMessagesFromDB()
+                counter = len(messages) - 1
+            except Exception as e:
+                src_exists = False
+                print("Source channel does not exist: " + channel)
+
             # get the destination channel to send message to
             dest_channel = self.get_channel(int(dest_channels[channel]))  # channel ID goes here
+            if not dest_channel:
+                print("Destination channel does not exist: "+ channel)
 
-            if counter >= 0:
-                # update database
-                query = "UPDATE " + "`" + channel + "`" + '''
-                SET sent = 1
-                where msg_id = ?
-                '''
-                try:
-                    self.db.execute(query, (messages[counter][0],))
-                except Exception as e:
-                    print(e)
-                self.db.commit()
+            if src_exists and dest_channel is not None:
+                if counter >= 0:
+                    msg_to_send = messages[counter][1]
+                    attachment = messages[counter][2]
 
-                # print logs
-                print(channel + ": New message Sent\n")
-                print('\n' + config["role_tag"] + messages[counter][1] + '\n' + messages[counter][2])
+                    # send the message to discord channel
+                    if bool(msg_to_send and not msg_to_send.isspace()):
+                        await dest_channel.send(msg_to_send)
 
-                msg_to_send = messages[counter][1]
-                attachment = messages[counter][2]
-                embed = discord.Embed()
-                embed.set_image(url=attachment)
-                # send the message to discord channel
-                if bool(msg_to_send and not msg_to_send.isspace()):
-                    await dest_channel.send(msg_to_send, embed=embed)
-            else:
-                messages = source_channel.getMessagesFromDB()
-                counter = len(messages)
+                    if attachment:
+                        embed = discord.Embed()
+                        embed.set_image(url=attachment)
+                        await dest_channel.send(embed=embed)
+
+                    # update database
+                    query = "UPDATE " + "`" + channel + "`" + '''
+                                    SET sent = 1
+                                    where msg_id = ?
+                                    '''
+                    try:
+                        self.db.execute(query, (messages[counter][0],))
+                    except Exception as e:
+                        print(e)
+                    self.db.commit()
+
+                    # print logs
+                    print(channel + ": New message Sent\n")
+                    print(messages[counter][1])
 
     @my_background_task.before_loop
     async def before_my_task(self):
@@ -159,8 +174,7 @@ class Database:
             image_url TEXT DEFAULT null,
             reference TEXT DEFAULT null,
             sent BOOLEAN DEFAULT 0,
-            PRIMARY KEY ('msg_id')
-            )
+            PRIMARY KEY ('msg_id'))
             """
             self.execute(table)
             self.commit()
